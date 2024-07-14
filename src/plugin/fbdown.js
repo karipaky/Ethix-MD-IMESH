@@ -1,11 +1,9 @@
 import pkg, { prepareWAMessageMedia } from '@whiskeysockets/baileys';
 const { generateWAMessageFromContent, proto } = pkg;
-import pkgg from 'nayan-media-downloader';
-const { ndown } = pkgg;
-
+import getFBInfo from '@xaviabot/fb-downloader';
 
 const fbSearchResultsMap = new Map();
-let fbSearchIndex = 1; 
+let fbSearchIndex = 1;
 
 const facebookCommand = async (m, Matrix) => {
   let selectedListId;
@@ -37,9 +35,10 @@ const facebookCommand = async (m, Matrix) => {
     try {
       await m.React("🕘");
 
+      const fbData = await getFBInfo(text);
+      console.log("fbData:", fbData);  // Log the data structure
 
-      const fbData = await ndown(text);
-      if (!fbData.status) {
+      if (!fbData) {
         await m.reply('No results found.');
         await m.React("❌");
         return;
@@ -47,23 +46,30 @@ const facebookCommand = async (m, Matrix) => {
 
       fbSearchResultsMap.set(fbSearchIndex, fbData);
 
-      const sections = [{
-        title: 'Video Qualities',
-        rows: fbData.data.map((video, index) => ({
-          header: '',
-          title: `📥 Download ${video.resolution}`,
-          description: '',
-          id: `media_${index}_${fbSearchIndex}`
-        }))
-      }];
+      const videoQualities = [];
+      if (fbData.sd) {
+        videoQualities.push({ resolution: 'SD', url: fbData.sd });
+      }
+      if (fbData.hd) {
+        videoQualities.push({ resolution: 'HD', url: fbData.hd });
+      }
 
-      const buttons = [{
-        name: "single_select",
-        buttonParamsJson: JSON.stringify({
-          title: '♂️ Select Quality',
-          sections: sections
+      const buttons = videoQualities.map((video, index) => ({
+        "name": "quick_reply",
+        "buttonParamsJson": JSON.stringify({
+          display_text: `📥 Download ${video.resolution}`,
+          id: `media_${index}_${fbSearchIndex}`
         })
-      }];
+      }));
+
+      const sections = videoQualities.map((video) => ({
+        title: 'Video Qualities',
+        rows: [{
+          title: `📥 Download ${video.resolution}`,
+          description: `Resolution: ${video.resolution}`,
+          id: `media_${fbSearchIndex}_${video.resolution}`
+        }]
+      }));
 
       const msg = generateWAMessageFromContent(m.from, {
         viewOnceMessage: {
@@ -74,13 +80,13 @@ const facebookCommand = async (m, Matrix) => {
             },
             interactiveMessage: proto.Message.InteractiveMessage.create({
               body: proto.Message.InteractiveMessage.Body.create({
-                text: `Ethix-MD Facebook Video Download\n\n🔍 Select the desired video quality to download.\n\n📌 Choose an option to download.\n\n`
+                text: `*ETHIX-MD FACEBOOK POST DOWNLOADER*\n\n> *TITLE*: ${fbData.title}`
               }),
               footer: proto.Message.InteractiveMessage.Footer.create({
                 text: "© Powered By Ethix-MD"
               }),
               header: proto.Message.InteractiveMessage.Header.create({
-                 ...(await prepareWAMessageMedia({ image: { url: `https://telegra.ph/file/fbbe1744668b44637c21a.jpg` } }, { upload: Matrix.waUploadToServer })),
+                ...(await prepareWAMessageMedia({ image: { url: fbData.thumbnail } }, { upload: Matrix.waUploadToServer })),
                 title: "",
                 gifPlayback: true,
                 subtitle: "",
@@ -119,7 +125,15 @@ const facebookCommand = async (m, Matrix) => {
 
       if (selectedMedia) {
         try {
-          const videoUrl = selectedMedia.data[qualityIndex].url;
+          const videoQualities = [];
+          if (selectedMedia.sd) {
+            videoQualities.push({ resolution: 'SD', url: selectedMedia.sd });
+          }
+          if (selectedMedia.hd) {
+            videoQualities.push({ resolution: 'HD', url: selectedMedia.hd });
+          }
+
+          const videoUrl = videoQualities[qualityIndex].url;
           let finalMediaBuffer, mimeType, content;
 
           finalMediaBuffer = await getStreamBuffer(videoUrl);
@@ -128,7 +142,11 @@ const facebookCommand = async (m, Matrix) => {
           const fileSizeInMB = finalMediaBuffer.length / (1024 * 1024);
 
           if (fileSizeInMB <= 300) {
-            content = { video: finalMediaBuffer, mimetype: 'video/mp4', caption: '> © Powered by Ethix-MD' };
+            content = { 
+              video: finalMediaBuffer, 
+              mimetype: 'video/mp4', 
+              caption: '> © Powered by Ethix-MD',
+            };
             await Matrix.sendMessage(m.from, content, { quoted: m });
           } else {
             await m.reply('The video file size exceeds 300MB.');
